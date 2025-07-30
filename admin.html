@@ -162,6 +162,30 @@
     <div id="approvedComplaints" class="report-list"></div>
   </div>
 
+  <button 
+    onclick="window.location.href='upload_check.html'" 
+    style="
+      position: fixed;
+      bottom: 24px;
+      right: 32px;
+      background: #0077b6;
+      color: #fff;
+      border: none;
+      border-radius: 50px;
+      padding: 1rem 2.2rem;
+      font-size: 1.15rem;
+      font-weight: 700;
+      box-shadow: 0 4px 16px #0077b655;
+      cursor: pointer;
+      z-index: 1000;
+      transition: background 0.2s;
+    "
+    onmouseover="this.style.background='#005b8a'"
+    onmouseout="this.style.background='#0077b6'"
+  >
+    ➕ Upload/Check Data
+  </button>
+
   <script>
     // Firebase config
     const firebaseConfig = {
