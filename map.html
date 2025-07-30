@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Water Quality Map</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #f6fbff;
+    }
+    #map {
+      height: 100vh;
+      width: 100vw;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+  <!-- Google Maps -->
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoc6crlhgYkyquuR75ROyPnoD-mx3atK4&libraries=visualization&callback=initMap">
+  </script>
+
+  <script>
+    // 1. Initialize Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyCB4O8j33O3MvstmRPDxaIRA16hBLEWszA",
+      authDomain: "phmonitor-c7b10.firebaseapp.com",
+      databaseURL: "https://phmonitor-c7b10-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "phmonitor-c7b10",
+      storageBucket: "phmonitor-c7b10.appspot.com",
+      messagingSenderId: "939761163717",
+      appId: "1:939761163717:web:0f3d2428af1359b21fbfac"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 2. Initialize Google Map
+    let map, heatmap;
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 22.9734, lng: 78.6569 }, // India center
+        zoom: 5,
+        mapTypeId: 'roadmap'
+      });
+
+      loadSensorHeatmap();
+    }
+
+    // 3. Load Sensor Data and Render Heatmap
+    function loadSensorHeatmap() {
+      const ref = db.ref("sensors");
+      ref.once("value", snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        // Prepare heatmap data with color weighting based on pH
+        const heatmapData = [];
+        Object.entries(data).forEach(([locationKey, sensor]) => {
+          const lat = parseFloat(sensor.latitude);
+          const lng = parseFloat(sensor.longitude);
+          const pH = parseFloat(sensor.ph);
+
+          // Weight: 0 (red, acidic) to 1 (green, neutral) to 0 (red, alkaline)
+          // We'll use a scale: pH 4 (red) -> 7.5 (green) -> 10 (red)
+          let weight;
+          if (pH <= 7.5) {
+            // Acidic to neutral: 4 (0) to 7.5 (1)
+            weight = (pH - 4) / (7.5 - 4);
+          } else {
+            // Neutral to alkaline: 7.5 (1) to 10 (0)
+            weight = (10 - pH) / (10 - 7.5);
+          }
+          weight = Math.max(0, Math.min(1, weight));
+
+          heatmapData.push({
+            location: new google.maps.LatLng(lat, lng),
+            weight: weight
+          });
+        });
+
+        // Create the heatmap layer
+        heatmap = new google.maps.visualization.HeatmapLayer({
+          data: heatmapData,
+          map: map,
+          radius: 40,
+          opacity: 0.7,
+          gradient: [
+            "rgba(255,0,0,0)",      // transparent
+            "rgba(255,0,0,1)",      // red (bad pH)
+            "rgba(255,255,0,1)",    // yellow (mid)
+            "rgba(0,255,0,1)"       // green (good pH)
+          ]
+        });
+      });
+    }
+  </script>
+</body>
+</html>

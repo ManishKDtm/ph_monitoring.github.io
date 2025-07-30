@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel - Water Quality</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-database-compat.js"></script>
+  <!-- Google Maps API (visualization for heatmap) -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoc6crlhgYkyquuR75ROyPnoD-mx3atK4&libraries=visualization"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f5f7fa;
+      margin: 0;
+    }
+    header {
+      background: #26334d;
+      color: #fff;
+      padding: 1.5rem 1rem 1rem 1rem;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 2px 8px #0002;
+    }
+    #logoutBtn {
+      position: absolute;
+      right: 20px;
+      top: 22px;
+      background: #d32f2f;
+      color: white;
+      border: none;
+      padding: 0.5rem 1.2rem;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 1rem;
+      box-shadow: 0 2px 8px #0001;
+    }
+    .content {
+      padding: 2rem 2.5rem;
+      max-width: 1200px;
+      margin: auto;
+    }
+    .section-title {
+      color: #26334d;
+      font-size: 1.3rem;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      border-left: 5px solid #0077b6;
+      padding-left: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .report-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.2rem;
+      margin-bottom: 2rem;
+    }
+    .report-card {
+      background: #fff;
+      padding: 1rem 1.3rem;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px #0077b622;
+      min-width: 260px;
+      max-width: 340px;
+      flex: 1 1 260px;
+      border-left: 5px solid #ffc107;
+      font-size: 1rem;
+      color: #26334d;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .report-card.verified {
+      border-left: 5px solid #43a047;
+      background: #f1fbe7;
+    }
+    .verify-btn {
+      background: #0077b6;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .verify-btn:hover {
+      background: #005b8a;
+    }
+    .map-toggle-group {
+      display: flex;
+      gap: 1.2rem;
+      margin: 2.5rem 0 1.2rem 0;
+      justify-content: center;
+    }
+    .map-toggle-btn {
+      background: #26334d;
+      color: #fff;
+      border: none;
+      border-radius: 8px 8px 0 0;
+      padding: 0.8rem 2.2rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      box-shadow: 0 2px 8px #0001;
+      outline: none;
+    }
+    .map-toggle-btn.active, .map-toggle-btn:focus {
+      background: #0077b6;
+      color: #fff;
+    }
+    .map-section {
+      display: none;
+      width: 100%;
+    }
+    .map-section.active {
+      display: block;
+    }
+    #heatmap, #reportMap {
+      width: 100%;
+      height: 420px;
+      border: 2px solid #0077b6;
+      border-radius: 0 0 12px 12px;
+      box-shadow: 0 2px 12px #0077b622;
+      margin-bottom: 2rem;
+    }
+    @media (max-width: 700px) {
+      .content { padding: 1rem; }
+      .report-list { flex-direction: column; }
+      #heatmap, #reportMap { height: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛡️ Admin Panel - Water Monitoring</h1>
+    <button id="logoutBtn" onclick="logout()">Logout</button>
+  </header>
+
+  <div class="content">
+    <div class="map-toggle-group">
+      <button class="map-toggle-btn active" id="btn-heatmap" onclick="showMap('heatmap')">Sensor Heatmap</button>
+      <button class="map-toggle-btn" id="btn-reportmap" onclick="showMap('reportMap')">Reports Map</button>
+    </div>
+    <div id="heatmap-section" class="map-section active">
+      <div id="heatmap"></div>
+    </div>
+    <div id="reportMap-section" class="map-section">
+      <div id="reportMap"></div>
+    </div>
+
+    <div class="section-title">Pending Complaints</div>
+    <div id="pendingComplaints" class="report-list"></div>
+
+    <div class="section-title">Approved Complaints</div>
+    <div id="approvedComplaints" class="report-list"></div>
+  </div>
+
+  <script>
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyCB4O8j33O3MvstmRPDxaIRA16hBLEWszA",
+      authDomain: "phmonitor-c7b10.firebaseapp.com",
+      databaseURL: "https://phmonitor-c7b10-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "phmonitor-c7b10"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const auth = firebase.auth();
+
+    auth.onAuthStateChanged(user => {
+      if (!user || user.email !== 'admin@phmonitor.com') {
+        window.location.href = 'login.html';
+      }
+    });
+
+    function logout() {
+      auth.signOut().then(() => {
+        window.location.href = 'login.html';
+      });
+    }
+
+    // --- Report Listing ---
+    function loadReports() {
+      db.ref('reports').on('value', snapshot => {
+        const reports = snapshot.val();
+        const pendingContainer = document.getElementById('pendingList');
+        const verifiedContainer = document.getElementById('verifiedList');
+        pendingContainer.innerHTML = '';
+        verifiedContainer.innerHTML = '';
+        if (!reports) return;
+
+        Object.entries(reports).forEach(([key, r]) => {
+          const card = document.createElement('div');
+          card.className = 'report-card' + (r.status === 'verified' ? ' verified' : '');
+          card.innerHTML = `
+            <strong>Comment:</strong> ${r.comment}<br>
+            <strong>Guess:</strong> ${r.guessed}<br>
+            <strong>Lat:</strong> ${r.lat}, <strong>Lng:</strong> ${r.lng}<br>
+            <strong>Status:</strong> ${r.status}
+            ${r.status !== 'verified' ? `<button class="verify-btn" onclick="verifyReport('${key}')">Mark as Verified</button>` : ''}
+          `;
+          if (r.status === 'verified') {
+            verifiedContainer.appendChild(card);
+          } else {
+            pendingContainer.appendChild(card);
+          }
+        });
+      });
+    }
+
+    function verifyReport(id) {
+      db.ref('reports/' + id).update({ status: 'verified' });
+    }
+
+    // --- Complaint Listing & Actions ---
+    function loadComplaints() {
+      db.ref('complaints').on('value', snapshot => {
+        const complaints = snapshot.val();
+        const pendingDiv = document.getElementById('pendingComplaints');
+        const approvedDiv = document.getElementById('approvedComplaints');
+        pendingDiv.innerHTML = '';
+        approvedDiv.innerHTML = '';
+        if (!complaints) return;
+
+        Object.entries(complaints).forEach(([key, c]) => {
+          const card = document.createElement('div');
+          card.className = 'report-card' + (c.status === 'approved' ? ' verified' : '');
+          card.innerHTML = `
+            <strong>Name:</strong> ${c.name || '-'}<br>
+            <strong>Location:</strong> ${c.location || '-'}<br>
+            ${c.lat && c.lng ? `<strong>Lat:</strong> ${c.lat}, <strong>Lng:</strong> ${c.lng}<br>` : ''}
+            <strong>pH:</strong> ${c.ph ?? '-'}<br>
+            <strong>TDS:</strong> ${c.tds ?? '-'}<br>
+            <strong>Issue:</strong> ${c.issue}<br>
+            <strong>Description:</strong> ${c.description}<br>
+            <strong>Status:</strong> ${c.status}
+            ${c.status !== 'approved' ? `
+              <button class="verify-btn" onclick="approveComplaint('${key}')">Approve</button>
+              <button class="verify-btn" style="background:#d32f2f;" onclick="discardComplaint('${key}')">Discard</button>
+            ` : ''}
+          `;
+          if (c.status === 'approved') {
+            approvedDiv.appendChild(card);
+          } else {
+            pendingDiv.appendChild(card);
+          }
+        });
+      });
+    }
+
+    function approveComplaint(id) {
+      db.ref('complaints/' + id).update({ status: 'approved' });
+    }
+    function discardComplaint(id) {
+      db.ref('complaints/' + id).remove();
+    }
+
+    // --- Map Toggle ---
+    function showMap(which) {
+      document.getElementById('heatmap-section').classList.remove('active');
+      document.getElementById('reportMap-section').classList.remove('active');
+      document.getElementById('btn-heatmap').classList.remove('active');
+      document.getElementById('btn-reportmap').classList.remove('active');
+      if (which === 'heatmap') {
+        document.getElementById('heatmap-section').classList.add('active');
+        document.getElementById('btn-heatmap').classList.add('active');
+      } else {
+        document.getElementById('reportMap-section').classList.add('active');
+        document.getElementById('btn-reportmap').classList.add('active');
+      }
+    }
+
+    // --- Sensor Heatmap ---
+    let heatmap, heatmapMap;
+    function initHeatmap() {
+      heatmapMap = new google.maps.Map(document.getElementById('heatmap'), {
+        center: { lat: 22.9734, lng: 78.6569 },
+        zoom: 5,
+        mapTypeId: 'roadmap'
+      });
+
+      const ref = db.ref("sensors");
+      ref.once("value", snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        const heatmapData = [];
+        Object.entries(data).forEach(([locationKey, sensor]) => {
+          const lat = parseFloat(sensor.latitude);
+          const lng = parseFloat(sensor.longitude);
+          const pH = parseFloat(sensor.ph);
+
+          // Weight: 0 (red, acidic) to 1 (green, neutral) to 0 (red, alkaline)
+          let weight;
+          if (pH <= 7.5) {
+            weight = (pH - 4) / (7.5 - 4);
+          } else {
+            weight = (10 - pH) / (10 - 7.5);
+          }
+          weight = Math.max(0, Math.min(1, weight));
+
+          heatmapData.push({
+            location: new google.maps.LatLng(lat, lng),
+            weight: weight
+          });
+        });
+
+        heatmap = new google.maps.visualization.HeatmapLayer({
+          data: heatmapData,
+          map: heatmapMap,
+          radius: 40,
+          opacity: 0.7,
+          gradient: [
+            "rgba(255,0,0,0)",
+            "rgba(255,0,0,1)",
+            "rgba(255,255,0,1)",
+            "rgba(0,255,0,1)"
+          ]
+        });
+      });
+    }
+
+    // --- Reports Map ---
+    let reportMap, reportMarkers = [], complaintMarkers = [];
+    function initReportMap() {
+      reportMap = new google.maps.Map(document.getElementById("reportMap"), {
+        center: { lat: 22.9734, lng: 78.6569 },
+        zoom: 5
+      });
+
+      // Existing report markers (from 'reports')
+      db.ref("reports").on("value", snapshot => {
+        const data = snapshot.val();
+        // Remove old markers
+        reportMarkers.forEach(m => m.setMap(null));
+        reportMarkers = [];
+        if (!data) return;
+        Object.values(data).forEach(r => {
+          const marker = new google.maps.Marker({
+            position: { lat: r.lat, lng: r.lng },
+            map: reportMap,
+            icon: r.status === "verified"
+              ? "http://maps.google.com/mapfiles/ms/icons/green-dot.png"
+              : "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+            title: r.status === "verified" ? "Verified Report" : "Pending Report"
+          });
+          const info = new google.maps.InfoWindow({
+            content: `<strong>Comment:</strong> ${r.comment}<br><strong>Guess:</strong> ${r.guessed}<br><strong>Status:</strong> ${r.status}`
+          });
+          marker.addListener("click", () => info.open(reportMap, marker));
+          reportMarkers.push(marker);
+        });
+      });
+
+      // Complaint markers (from 'complaints')
+      db.ref("complaints").on("value", snapshot => {
+        const data = snapshot.val();
+        // Remove old complaint markers
+        complaintMarkers.forEach(m => m.setMap(null));
+        complaintMarkers = [];
+        if (!data) return;
+        Object.values(data).forEach(c => {
+          if (!c.lat || !c.lng) return;
+          const marker = new google.maps.Marker({
+            position: { lat: c.lat, lng: c.lng },
+            map: reportMap,
+            icon: c.status === "approved"
+              ? "http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
+              : "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+            title: c.status === "approved" ? "Approved Complaint" : "Pending Complaint"
+          });
+          const info = new google.maps.InfoWindow({
+            content: `<strong>Name:</strong> ${c.name || '-'}<br>
+                      <strong>Location:</strong> ${c.location || '-'}<br>
+                      <strong>Issue:</strong> ${c.issue}<br>
+                      <strong>Description:</strong> ${c.description}<br>
+                      <strong>Status:</strong> ${c.status}`
+          });
+          marker.addListener("click", () => info.open(reportMap, marker));
+          complaintMarkers.push(marker);
+        });
+      });
+    }
+
+    // --- Initialize everything ---
+    window.onload = () => {
+      loadReports();
+      loadComplaints();
+      setTimeout(() => {
+        initHeatmap();
+        initReportMap();
+      }, 800); // Ensure DOM is ready and Firebase loaded
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Water Quality Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-database-compat.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f6fbff;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background-color: #26334d;
+      color: white;
+      padding: 1.5rem 1rem 1rem 1rem;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 2px 8px #0002;
+    }
+    #logoutBtn {
+      position: absolute;
+      right: 20px;
+      top: 22px;
+      background: #d32f2f;
+      color: white;
+      border: none;
+      padding: 0.5rem 1.2rem;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 1rem;
+      box-shadow: 0 2px 8px #0001;
+    }
+    .content {
+      padding: 2rem 2.5rem;
+      max-width: 1200px;
+      margin: auto;
+    }
+    .dashboard-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.2rem;
+      margin-bottom: 2rem;
+      justify-content: center;
+    }
+    .option-btn {
+      background: linear-gradient(90deg, #0077b6 30%, #48cae4 70%);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 1rem 2rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 8px #0077b633;
+      outline: none;
+    }
+    .option-btn:hover, .option-btn:focus {
+      background: linear-gradient(90deg, #48cae4 10%, #0077b6 90%);
+      box-shadow: 0 4px 16px #0077b655;
+    }
+    .awareness-section {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 2px 16px #b5e3f766;
+      padding: 2rem;
+      margin-bottom: 2.5rem;
+      margin-top: 1.5rem;
+    }
+    .awareness-section h2 {
+      color: #0077b6;
+      margin-top: 0;
+    }
+    .ph-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      background: #f6fbff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px #b5e3f744;
+    }
+    .ph-table th, .ph-table td {
+      padding: 0.8rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid #e0e7ef;
+    }
+    .ph-table th {
+      background: #e0f2f1;
+      color: #26334d;
+      font-weight: 700;
+    }
+    .ph-table tr:last-child td {
+      border-bottom: none;
+    }
+    .ph-bad { background: #ffebee; color: #c62828; }
+    .ph-warning { background: #fffde7; color: #f9a825; }
+    .ph-good { background: #e8f5e9; color: #388e3c; }
+    .section-title {
+      color: #26334d;
+      font-size: 1.3rem;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      border-left: 5px solid #0077b6;
+      padding-left: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    #map {
+      width: 100%;
+      height: 420px;
+      border: 2px solid #0077b6;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px #0077b622;
+      margin-bottom: 2rem;
+      margin-top: 1.5rem;
+    }
+    @media (max-width: 700px) {
+      .content { padding: 1rem; }
+      #map { height: 300px; }
+      .dashboard-options { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🌊 Water Quality Dashboard</h1>
+    <button id="logoutBtn" onclick="logout()" style="display: none;">Logout</button>
+  </header>
+
+  <div class="content">
+    <div class="dashboard-options">
+      <button class="option-btn" onclick="showHeatmap()">Show Heatmap</button>
+      <button class="option-btn" onclick="exportAffectedAreas()">Export Affected Areas (CSV)</button>
+      <button class="option-btn" onclick="mailAdmin()">Mail Admin for Water Test Kit</button>
+    </div>
+
+    <div class="awareness-section">
+      <h2>💧 Water pH Awareness & Health Effects</h2>
+      <table class="ph-table">
+        <tr>
+          <th>pH Range</th>
+          <th>Health Effects</th>
+          <th>What To Do</th>
+          <th>What Not To Do</th>
+        </tr>
+        <tr class="ph-bad">
+          <td>&lt; 6.5 (Acidic)</td>
+          <td>May corrode pipes, cause stomach issues, skin irritation, and leach metals.</td>
+          <td>Use filtered/bottled water. Get water tested. Inform authorities.</td>
+          <td>Do not drink or cook with this water. Avoid bathing if irritation occurs.</td>
+        </tr>
+        <tr class="ph-good">
+          <td>6.5 – 8.5 (Safe/Neutral)</td>
+          <td>Generally safe for drinking and daily use.</td>
+          <td>Use as normal. Maintain regular checks.</td>
+          <td>Do not ignore sudden changes in taste, color, or smell.</td>
+        </tr>
+        <tr class="ph-warning">
+          <td>&gt; 8.5 (Alkaline)</td>
+          <td>May cause bitter taste, scale buildup, digestive issues, dry skin.</td>
+          <td>Use filtered water. Get water tested. Inform authorities.</td>
+          <td>Do not drink for long periods. Avoid for infants and elderly.</td>
+        </tr>
+      </table>
+      <p>
+        <strong>Awareness:</strong> Always check for sudden changes in water quality. Report issues using this dashboard. For more information, contact your local water authority.
+      </p>
+    </div>
+
+    <div class="section-title">Water Quality Heatmap</div>
+    <div id="map"></div>
+  </div>
+
+  <script>
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyCB4O8j33O3MvstmRPDxaIRA16hBLEWszA",
+      authDomain: "phmonitor-c7b10.firebaseapp.com",
+      databaseURL: "https://phmonitor-c7b10-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "phmonitor-c7b10"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const auth = firebase.auth();
+
+    auth.onAuthStateChanged(user => {
+      if (!user) {
+        window.location.href = "login.html";
+      } else {
+        document.getElementById("logoutBtn").style.display = "inline-block";
+      }
+    });
+
+    function logout() {
+      auth.signOut().then(() => {
+        window.location.href = "login.html";
+      });
+    }
+
+    // --- Heatmap for pH sensors ---
+    let map, heatmap;
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 22.9734, lng: 78.6569 },
+        zoom: 5,
+        mapTypeId: 'roadmap'
+      });
+      loadSensorHeatmap();
+    }
+    window.initMap = initMap;
+
+    function loadSensorHeatmap() {
+      const ref = db.ref("sensors");
+      ref.once("value", snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        const heatmapData = [];
+        Object.entries(data).forEach(([locationKey, sensor]) => {
+          const lat = parseFloat(sensor.latitude);
+          const lng = parseFloat(sensor.longitude);
+          const pH = parseFloat(sensor.ph);
+
+          // Weight: 0 (red, acidic) to 1 (green, neutral) to 0 (red, alkaline)
+          let weight;
+          if (pH <= 7.5) {
+            weight = (pH - 4) / (7.5 - 4);
+          } else {
+            weight = (10 - pH) / (10 - 7.5);
+          }
+          weight = Math.max(0, Math.min(1, weight));
+
+          heatmapData.push({
+            location: new google.maps.LatLng(lat, lng),
+            weight: weight
+          });
+        });
+
+        heatmap = new google.maps.visualization.HeatmapLayer({
+          data: heatmapData,
+          map: map,
+          radius: 40,
+          opacity: 0.7,
+          gradient: [
+            "rgba(255,0,0,0)",      // transparent
+            "rgba(255,0,0,1)",      // red (bad pH)
+            "rgba(255,255,0,1)",    // yellow (mid)
+            "rgba(0,255,0,1)"       // green (good pH)
+          ]
+        });
+      });
+    }
+
+    // --- Dashboard Option Functions ---
+    function showHeatmap() {
+      window.scrollTo({ top: document.getElementById('map').offsetTop - 60, behavior: 'smooth' });
+    }
+
+    function exportAffectedAreas() {
+      const ref = db.ref("sensors");
+      ref.once("value", snapshot => {
+        const data = snapshot.val();
+        if (!data) {
+          alert("No data to export.");
+          return;
+        }
+        let csv = "Latitude,Longitude,pH\n";
+        Object.values(data).forEach(sensor => {
+          csv += `${sensor.latitude},${sensor.longitude},${sensor.ph}\n`;
+        });
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "affected_areas.csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    function mailAdmin() {
+      window.location.href = "mailto:dmanishkumar093@gmail.com?subject=Request%20for%20Water%20Test%20Kit&body=I%20would%20like%20to%20request%20a%20water%20test%20kit%20for%20my%20area.%20Please%20contact%20me%20with%20further%20details.";
+    }
+  </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoc6crlhgYkyquuR75ROyPnoD-mx3atK4&libraries=visualization&callback=initMap"></script>
+</body>
+</html>

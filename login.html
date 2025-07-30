@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PH Monitor Login</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #e3f2fd;
+      text-align: center;
+      padding: 2rem;
+    }
+    input, button {
+      padding: 0.7rem;
+      margin: 0.5rem;
+      border-radius: 5px;
+      border: 1px solid #90caf9;
+    }
+    button {
+      background-color: #1976d2;
+      color: white;
+      cursor: pointer;
+      border: none;
+    }
+    h1 {
+      color: #1565c0;
+    }
+    #msg {
+      color: red;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Login to PH Monitor</h1>
+  <input type="email" id="email" placeholder="Enter Email"><br>
+  <input type="password" id="password" placeholder="Enter Password"><br>
+  <button onclick="login()">Login</button>
+  <p id="msg"></p>
+  <script>
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyCB4O8j33O3MvstmRPDxaIRA16hBLEWszA",
+      authDomain: "phmonitor-c7b10.firebaseapp.com",
+      projectId: "phmonitor-c7b10",
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+
+    // Login function
+    function login() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      auth.signInWithEmailAndPassword(email, password)
+        .then((userCredential) => {
+          const user = userCredential.user;
+          if (user.email === "admin@phmonitor.com") {
+            window.location.href = "admin.html";
+          } else {
+            window.location.href = "dashboard.html";
+          }
+        })
+        .catch((error) => {
+          document.getElementById("msg").innerText = "❌ " + error.message;
+        });
+    }
+
+    // If already logged in, redirect accordingly
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        if (user.email === "admin@phmonitor.com") {
+          window.location.href = "admin.html";
+        } else {
+          window.location.href = "dashboard.html";
+        }
+      }
+    });
+  </script>
+</body>
+</html>

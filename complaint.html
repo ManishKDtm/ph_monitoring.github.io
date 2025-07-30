@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>File Water Quality Complaint</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-database-compat.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f6fbff;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    header {
+      background: #26334d;
+      color: #fff;
+      width: 100%;
+      padding: 1.5rem 1rem 1rem 1rem;
+      text-align: center;
+      box-shadow: 0 2px 8px #0002;
+    }
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+    form {
+      background: #fff;
+      padding: 2rem 2.5rem;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px #b5e3f766;
+      margin-top: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+      min-width: 320px;
+      max-width: 400px;
+    }
+    label {
+      font-weight: 600;
+      color: #1a2233;
+    }
+    input, textarea, select {
+      padding: 0.7rem;
+      border-radius: 8px;
+      border: 1.5px solid #b5e3f7;
+      font-size: 1rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+      max-height: 200px;
+    }
+    button {
+      background: linear-gradient(90deg, #0077b6 30%, #48cae4 70%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.9rem 1.5rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: linear-gradient(90deg, #48cae4 10%, #0077b6 90%);
+    }
+    .status {
+      margin-top: 1rem;
+      font-weight: 600;
+      color: #00796b;
+    }
+    .location-btn {
+      margin-bottom: 0.5rem;
+      background: #e0e7ef;
+      color: #0077b6;
+      border: none;
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .location-btn:hover {
+      background: #caf0f8;
+    }
+    .coords {
+      font-size: 0.9rem;
+      color: #333;
+      margin-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>File Water Quality Complaint</h1>
+  </header>
+  <form id="complaintForm">
+    <label>
+      Your Name:
+      <input type="text" name="name" required>
+    </label>
+    <label>
+      Location (Address or Landmark):
+      <input type="text" name="location" id="locationInput" required readonly>
+    </label>
+    <button type="button" class="location-btn" id="getLocationBtn">Use My Location</button>
+    <div class="coords" id="coordsDisplay" style="display:none;"></div>
+    <label>
+      pH Value (if known):
+      <input type="number" step="any" name="ph" min="0" max="14">
+    </label>
+    <label>
+      TDS (ppm, if known):
+      <input type="number" step="any" name="tds">
+    </label>
+    <label>
+      Issue Type:
+      <select name="issue" required>
+        <option value="">Select an issue</option>
+        <option value="bad taste">Bad Taste</option>
+        <option value="odor">Odor</option>
+        <option value="color">Color</option>
+        <option value="health effects">Health Effects</option>
+        <option value="other">Other</option>
+      </select>
+    </label>
+    <label>
+      Description:
+      <textarea name="description" placeholder="Describe the issue..." required></textarea>
+    </label>
+    <button type="submit">Submit Complaint</button>
+    <div class="status" id="status"></div>
+  </form>
+  <script>
+    // Initialize Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyCB4O8j33O3MvstmRPDxaIRA16hBLEWszA",
+      authDomain: "phmonitor-c7b10.firebaseapp.com",
+      databaseURL: "https://phmonitor-c7b10-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "phmonitor-c7b10"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let lat = null, lon = null;
+
+    document.getElementById('getLocationBtn').addEventListener('click', function() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+          lat = position.coords.latitude;
+          lon = position.coords.longitude;
+          document.getElementById('coordsDisplay').textContent = `Latitude: ${lat}, Longitude: ${lon}`;
+          document.getElementById('coordsDisplay').style.display = 'block';
+
+          // Reverse geocode to get area name/address
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
+            .then(response => response.json())
+            .then(data => {
+              const address = data.display_name || "";
+              document.getElementById('locationInput').value = address;
+            })
+            .catch(() => {
+              document.getElementById('locationInput').value = "";
+            });
+        }, function() {
+          alert('Unable to retrieve your location. Please check your browser settings.');
+        });
+      } else {
+        alert('Geolocation is not supported by this browser.');
+      }
+    });
+
+    document.getElementById('complaintForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const name = form.name.value.trim();
+      const location = form.location.value.trim();
+      const ph = form.ph.value ? parseFloat(form.ph.value) : null;
+      const tds = form.tds.value ? parseFloat(form.tds.value) : null;
+      const issue = form.issue.value;
+      const description = form.description.value.trim();
+
+      if (!name || !location || !issue || !description || lat === null || lon === null) {
+        document.getElementById('status').textContent = "Please fill all required fields and use your location.";
+        return;
+      }
+
+      const complaint = {
+        name,
+        location,
+        ph,
+        tds,
+        issue,
+        description,
+        lat,
+        lng: lon,
+        timestamp: Date.now(),
+        status: "pending"
+      };
+
+      db.ref("complaints").push(complaint)
+        .then(() => {
+          document.getElementById('status').textContent = "✅ Complaint submitted! Thank you for reporting.";
+          form.reset();
+          document.getElementById('coordsDisplay').style.display = 'none';
+          document.getElementById('locationInput').value = '';
+          lat = null; lon = null;
+        })
+        .catch(() => {
+          document.getElementById('status').textContent = "❌ Failed to submit complaint. Please try again.";
+        });
+    });
+  </script>
+</body>
+</html>

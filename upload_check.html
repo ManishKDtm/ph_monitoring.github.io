@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Upload Sensor Data</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      padding: 20px;
+      background: #f3f3f3;
+    }
+    .container {
+      max-width: 500px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    }
+    h2 {
+      text-align: center;
+    }
+    input, textarea, button {
+      width: 100%;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    button {
+      background: #2196f3;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📤 Upload Sensor Data</h2>
+    <input type="text" id="location" placeholder="Location name (e.g., Kolkata)" required />
+    <input type="number" id="latitude" placeholder="Latitude (e.g., 22.5726)" required step="any" />
+    <input type="number" id="longitude" placeholder="Longitude (e.g., 88.3639)" required step="any" />
+    <input type="number" id="ph" placeholder="pH value" required step="any" />
+    <input type="number" id="tds" placeholder="TDS (ppm)" required />
+    <input type="number" id="temperature" placeholder="Temperature (°C)" required step="any" />
+    <button onclick="uploadData()">Upload</button>
+    <p id="status"></p>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCB4O8j33O3MvstmRPDxaIRA16hBLEWszA",
+      authDomain: "phmonitor-c7b10.firebaseapp.com",
+      databaseURL: "https://phmonitor-c7b10-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "phmonitor-c7b10",
+      storageBucket: "phmonitor-c7b10.appspot.com",
+      messagingSenderId: "939761163717",
+      appId: "1:939761163717:web:0f3d2428af1359b21fbfac"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function uploadData() {
+      const location = document.getElementById("location").value.trim();
+      const latitude = document.getElementById("latitude").value;
+      const longitude = document.getElementById("longitude").value;
+      const ph = document.getElementById("ph").value;
+      const tds = document.getElementById("tds").value;
+      const temperature = document.getElementById("temperature").value;
+
+      if (!location || !latitude || !longitude || !ph || !tds || !temperature) {
+        document.getElementById("status").innerText = "⚠️ Please fill in all fields.";
+        return;
+      }
+
+      const data = {
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        ph: parseFloat(ph),
+        tds: parseInt(tds),
+        temperature: parseFloat(temperature),
+        timestamp: new Date().toLocaleString("en-IN")
+      };
+
+      db.ref("sensors/" + location).set(data)
+        .then(() => {
+          document.getElementById("status").innerText = "✅ Data uploaded successfully!";
+        })
+        .catch((error) => {
+          document.getElementById("status").innerText = "❌ Error: " + error.message;
+        });
+    }
+  </script>
+</body>
+</html>
