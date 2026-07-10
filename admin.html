@@ -8,8 +8,10 @@
   <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-database-compat.js"></script>
-  <!-- Google Maps API (visualization for heatmap) -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoc6crlhgYkyquuR75ROyPnoD-mx3atK4&libraries=visualization&v=3.64"></script>
+  <!-- Leaflet CSS & JS + Leaflet.heat -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
   <style>
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
@@ -130,6 +132,44 @@
       box-shadow: 0 2px 12px #0077b622;
       margin-bottom: 2rem;
     }
+    /* Legend styling */
+    .legend {
+      background: white;
+      padding: 10px 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    .legend h4 {
+      margin: 0 0 8px 0;
+      font-weight: 700;
+      color: #1e3b4f;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .color-box {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+    }
+    .marker-legend {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 3px;
+    }
+    .marker-icon-small {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid #555;
+    }
     @media (max-width: 700px) {
       .content { padding: 1rem; }
       .report-list { flex-direction: column; }
@@ -216,8 +256,8 @@
         const reports = snapshot.val();
         const pendingContainer = document.getElementById('pendingList');
         const verifiedContainer = document.getElementById('verifiedList');
-        pendingContainer.innerHTML = '';
-        verifiedContainer.innerHTML = '';
+        if (pendingContainer) pendingContainer.innerHTML = '';
+        if (verifiedContainer) verifiedContainer.innerHTML = '';
         if (!reports) return;
 
         Object.entries(reports).forEach(([key, r]) => {
@@ -231,9 +271,9 @@
             ${r.status !== 'verified' ? `<button class="verify-btn" onclick="verifyReport('${key}')">Mark as Verified</button>` : ''}
           `;
           if (r.status === 'verified') {
-            verifiedContainer.appendChild(card);
+            if (verifiedContainer) verifiedContainer.appendChild(card);
           } else {
-            pendingContainer.appendChild(card);
+            if (pendingContainer) pendingContainer.appendChild(card);
           }
         });
       });
@@ -295,33 +335,72 @@
       if (which === 'heatmap') {
         document.getElementById('heatmap-section').classList.add('active');
         document.getElementById('btn-heatmap').classList.add('active');
+        // Invalidate size when switching to heatmap
+        setTimeout(() => {
+          if (heatmapMap) heatmapMap.invalidateSize();
+        }, 100);
       } else {
         document.getElementById('reportMap-section').classList.add('active');
         document.getElementById('btn-reportmap').classList.add('active');
+        // Invalidate size when switching to report map
+        setTimeout(() => {
+          if (reportMapInstance) reportMapInstance.invalidateSize();
+        }, 100);
       }
     }
 
-    // --- Sensor Heatmap ---
-    let heatmap, heatmapMap;
+    // --- Sensor Heatmap (Leaflet) ---
+    let heatmapMap, heatmapLayer;
     function initHeatmap() {
-      heatmapMap = new google.maps.Map(document.getElementById('heatmap'), {
-        center: { lat: 22.9734, lng: 78.6569 },
+      heatmapMap = L.map('heatmap', {
+        center: [22.9734, 78.6569],
         zoom: 5,
-        mapTypeId: 'roadmap'
+        zoomControl: true
       });
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19
+      }).addTo(heatmapMap);
+
+      // Add legend for heatmap
+      const heatLegend = L.control({ position: 'bottomright' });
+      heatLegend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+          <h4>pH Heatmap</h4>
+          <div class="legend-item">
+            <div class="color-box" style="background: red;"></div>
+            <span>Poor (Acidic / Alkaline)</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background: yellow;"></div>
+            <span>Moderate</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background: lime;"></div>
+            <span>Good (Neutral pH)</span>
+          </div>
+        `;
+        return div;
+      };
+      heatLegend.addTo(heatmapMap);
 
       const ref = db.ref("sensors");
       ref.once("value", snapshot => {
         const data = snapshot.val();
         if (!data) return;
 
-        const heatmapData = [];
+        const heatArray = [];
         Object.entries(data).forEach(([locationKey, sensor]) => {
           const lat = parseFloat(sensor.latitude);
           const lng = parseFloat(sensor.longitude);
           const pH = parseFloat(sensor.ph);
 
-          // Weight: 0 (red, acidic) to 1 (green, neutral) to 0 (red, alkaline)
+          if (isNaN(lat) || isNaN(lng)) return;
+
+          // Weight: 0 (bad pH) to 1 (good pH)
           let weight;
           if (pH <= 7.5) {
             weight = (pH - 4) / (7.5 - 4);
@@ -330,85 +409,160 @@
           }
           weight = Math.max(0, Math.min(1, weight));
 
-          heatmapData.push({
-            location: new google.maps.LatLng(lat, lng),
-            weight: weight
-          });
+          heatArray.push([lat, lng, weight]);
         });
 
-        heatmap = new google.maps.visualization.HeatmapLayer({
-          data: heatmapData,
-          map: heatmapMap,
-          radius: 40,
-          opacity: 0.7,
-          gradient: [
-            "rgba(255,0,0,0)",
-            "rgba(255,0,0,1)",
-            "rgba(255,255,0,1)",
-            "rgba(0,255,0,1)"
-          ]
+        if (heatArray.length === 0) return;
+
+        heatmapLayer = L.heatLayer(heatArray, {
+          radius: 35,
+          blur: 20,
+          maxZoom: 12,
+          max: 1.0,
+          gradient: {
+            0.0: 'red',
+            0.5: 'yellow',
+            1.0: 'lime'
+          },
+          minOpacity: 0.25
+        }).addTo(heatmapMap);
+
+        // Fit bounds to show all points
+        const bounds = heatArray.map(p => [p[0], p[1]]);
+        heatmapMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 7 });
+      });
+    }
+
+    // --- Reports Map (Leaflet with markers) ---
+    let reportMapInstance;
+    let reportMarkersLayer, complaintMarkersLayer;
+    
+    function initReportMap() {
+      reportMapInstance = L.map('reportMap', {
+        center: [22.9734, 78.6569],
+        zoom: 5,
+        zoomControl: true
+      });
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19
+      }).addTo(reportMapInstance);
+
+      // Create layer groups for markers
+      reportMarkersLayer = L.layerGroup().addTo(reportMapInstance);
+      complaintMarkersLayer = L.layerGroup().addTo(reportMapInstance);
+
+      // Add legend for report map
+      const reportLegend = L.control({ position: 'bottomright' });
+      reportLegend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+          <h4>Map Markers</h4>
+          <div class="marker-legend">
+            <div class="marker-icon-small" style="background: #4CAF50; border-color: #2E7D32;"></div>
+            <span>Verified Report</span>
+          </div>
+          <div class="marker-legend">
+            <div class="marker-icon-small" style="background: #FFC107; border-color: #F57F17;"></div>
+            <span>Pending Report</span>
+          </div>
+          <div class="marker-legend">
+            <div class="marker-icon-small" style="background: #2196F3; border-color: #0D47A1;"></div>
+            <span>Approved Complaint</span>
+          </div>
+          <div class="marker-legend">
+            <div class="marker-icon-small" style="background: #F44336; border-color: #B71C1C;"></div>
+            <span>Pending Complaint</span>
+          </div>
+        `;
+        return div;
+      };
+      reportLegend.addTo(reportMapInstance);
+
+      // Load report markers
+      loadReportMarkers();
+      // Load complaint markers
+      loadComplaintMarkers();
+    }
+
+    function loadReportMarkers() {
+      db.ref("reports").on("value", snapshot => {
+        const data = snapshot.val();
+        // Clear existing markers
+        reportMarkersLayer.clearLayers();
+        if (!data) return;
+
+        Object.values(data).forEach(r => {
+          const markerColor = r.status === "verified" ? "#4CAF50" : "#FFC107";
+          const markerBorder = r.status === "verified" ? "#2E7D32" : "#F57F17";
+          
+          const customIcon = L.divIcon({
+            className: 'custom-marker',
+            html: `<div style="
+              width: 20px;
+              height: 20px;
+              background: ${markerColor};
+              border: 3px solid ${markerBorder};
+              border-radius: 50%;
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            "></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+            popupAnchor: [0, -12]
+          });
+
+          const marker = L.marker([r.lat, r.lng], { icon: customIcon })
+            .bindPopup(`
+              <strong>Comment:</strong> ${r.comment}<br>
+              <strong>Guess:</strong> ${r.guessed}<br>
+              <strong>Status:</strong> ${r.status}
+            `);
+          
+          reportMarkersLayer.addLayer(marker);
         });
       });
     }
 
-    // --- Reports Map ---
-    let reportMap, reportMarkers = [], complaintMarkers = [];
-    function initReportMap() {
-      reportMap = new google.maps.Map(document.getElementById("reportMap"), {
-        center: { lat: 22.9734, lng: 78.6569 },
-        zoom: 5
-      });
-
-      // Existing report markers (from 'reports')
-      db.ref("reports").on("value", snapshot => {
-        const data = snapshot.val();
-        // Remove old markers
-        reportMarkers.forEach(m => m.setMap(null));
-        reportMarkers = [];
-        if (!data) return;
-        Object.values(data).forEach(r => {
-          const marker = new google.maps.Marker({
-            position: { lat: r.lat, lng: r.lng },
-            map: reportMap,
-            icon: r.status === "verified"
-              ? "http://maps.google.com/mapfiles/ms/icons/green-dot.png"
-              : "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
-            title: r.status === "verified" ? "Verified Report" : "Pending Report"
-          });
-          const info = new google.maps.InfoWindow({
-            content: `<strong>Comment:</strong> ${r.comment}<br><strong>Guess:</strong> ${r.guessed}<br><strong>Status:</strong> ${r.status}`
-          });
-          marker.addListener("click", () => info.open(reportMap, marker));
-          reportMarkers.push(marker);
-        });
-      });
-
-      // Complaint markers (from 'complaints')
+    function loadComplaintMarkers() {
       db.ref("complaints").on("value", snapshot => {
         const data = snapshot.val();
-        // Remove old complaint markers
-        complaintMarkers.forEach(m => m.setMap(null));
-        complaintMarkers = [];
+        // Clear existing markers
+        complaintMarkersLayer.clearLayers();
         if (!data) return;
+
         Object.values(data).forEach(c => {
           if (!c.lat || !c.lng) return;
-          const marker = new google.maps.Marker({
-            position: { lat: c.lat, lng: c.lng },
-            map: reportMap,
-            icon: c.status === "approved"
-              ? "http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
-              : "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
-            title: c.status === "approved" ? "Approved Complaint" : "Pending Complaint"
+          
+          const markerColor = c.status === "approved" ? "#2196F3" : "#F44336";
+          const markerBorder = c.status === "approved" ? "#0D47A1" : "#B71C1C";
+          
+          const customIcon = L.divIcon({
+            className: 'custom-marker',
+            html: `<div style="
+              width: 20px;
+              height: 20px;
+              background: ${markerColor};
+              border: 3px solid ${markerBorder};
+              border-radius: 50%;
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            "></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+            popupAnchor: [0, -12]
           });
-          const info = new google.maps.InfoWindow({
-            content: `<strong>Name:</strong> ${c.name || '-'}<br>
-                      <strong>Location:</strong> ${c.location || '-'}<br>
-                      <strong>Issue:</strong> ${c.issue}<br>
-                      <strong>Description:</strong> ${c.description}<br>
-                      <strong>Status:</strong> ${c.status}`
-          });
-          marker.addListener("click", () => info.open(reportMap, marker));
-          complaintMarkers.push(marker);
+
+          const marker = L.marker([c.lat, c.lng], { icon: customIcon })
+            .bindPopup(`
+              <strong>Name:</strong> ${c.name || '-'}<br>
+              <strong>Location:</strong> ${c.location || '-'}<br>
+              <strong>Issue:</strong> ${c.issue}<br>
+              <strong>Description:</strong> ${c.description}<br>
+              <strong>Status:</strong> ${c.status}
+            `);
+          
+          complaintMarkersLayer.addLayer(marker);
         });
       });
     }
@@ -420,8 +574,14 @@
       setTimeout(() => {
         initHeatmap();
         initReportMap();
-      }, 800); // Ensure DOM is ready and Firebase loaded
+      }, 800);
     };
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      if (heatmapMap) heatmapMap.invalidateSize();
+      if (reportMapInstance) reportMapInstance.invalidateSize();
+    });
   </script>
 </body>
 </html>
