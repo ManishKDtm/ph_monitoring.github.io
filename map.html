@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Water Quality Map</title>
+  <title>Water Quality Map | Leaflet Heatmap</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
     html, body {
       height: 100%;
@@ -15,6 +17,36 @@
       height: 100vh;
       width: 100vw;
     }
+    /* Legend styling */
+    .legend {
+      background: white;
+      padding: 10px 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      font-size: 0.9rem;
+      line-height: 1.6;
+      position: absolute;
+      bottom: 30px;
+      right: 20px;
+      z-index: 1000;
+    }
+    .legend h4 {
+      margin: 0 0 8px 0;
+      font-weight: 700;
+      color: #1e3b4f;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .color-box {
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+    }
   </style>
 </head>
 <body>
@@ -25,10 +57,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
-  <!-- Google Maps -->
-  <script async defer
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCoc6crlhgYkyquuR75ROyPnoD-mx3atK4&libraries=visualization&callback=initMap">
-  </script>
+  <!-- Leaflet JS + Leaflet.heat -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
   <script>
     // 1. Initialize Firebase
@@ -44,65 +75,137 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 2. Initialize Google Map
-    let map, heatmap;
+    // 2. Initialize Leaflet Map
+    let map;
+    let heatmapLayer;
+
     function initMap() {
-      map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 22.9734, lng: 78.6569 }, // India center
+      // Create map centered on India
+      map = L.map('map', {
+        center: [22.9734, 78.6569],
         zoom: 5,
-        mapTypeId: 'roadmap'
+        zoomControl: true,
+        scrollWheelZoom: true
       });
 
+      // Add tile layer (light theme)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19
+      }).addTo(map);
+
+      // Add legend
+      addLegend();
+
+      // Load sensor data
       loadSensorHeatmap();
     }
 
-    // 3. Load Sensor Data and Render Heatmap
+    // 3. Add custom legend control
+    function addLegend() {
+      const legend = L.control({ position: 'bottomright' });
+
+      legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+          <h4>pH Heatmap</h4>
+          <div class="legend-item">
+            <div class="color-box" style="background: red;"></div>
+            <span>Poor (Acidic / Alkaline)</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background: yellow;"></div>
+            <span>Moderate</span>
+          </div>
+          <div class="legend-item">
+            <div class="color-box" style="background: lime;"></div>
+            <span>Good (Neutral pH)</span>
+          </div>
+        `;
+        return div;
+      };
+
+      legend.addTo(map);
+    }
+
+    // 4. Load Sensor Data and Render Heatmap
     function loadSensorHeatmap() {
       const ref = db.ref("sensors");
       ref.once("value", snapshot => {
         const data = snapshot.val();
-        if (!data) return;
+        if (!data) {
+          console.warn("No sensor data found.");
+          return;
+        }
 
-        // Prepare heatmap data with color weighting based on pH
-        const heatmapData = [];
+        // Prepare heatmap data: [lat, lng, intensity]
+        const heatArray = [];
+
         Object.entries(data).forEach(([locationKey, sensor]) => {
           const lat = parseFloat(sensor.latitude);
           const lng = parseFloat(sensor.longitude);
           const pH = parseFloat(sensor.ph);
 
-          // Weight: 0 (red, acidic) to 1 (green, neutral) to 0 (red, alkaline)
-          // We'll use a scale: pH 4 (red) -> 7.5 (green) -> 10 (red)
+          if (isNaN(lat) || isNaN(lng)) return;
+
+          // Calculate weight: 0 (bad pH) to 1 (good pH)
           let weight;
           if (pH <= 7.5) {
-            // Acidic to neutral: 4 (0) to 7.5 (1)
+            // Acidic to neutral: pH 4 (weight 0) → pH 7.5 (weight 1)
             weight = (pH - 4) / (7.5 - 4);
           } else {
-            // Neutral to alkaline: 7.5 (1) to 10 (0)
+            // Neutral to alkaline: pH 7.5 (weight 1) → pH 10 (weight 0)
             weight = (10 - pH) / (10 - 7.5);
           }
           weight = Math.max(0, Math.min(1, weight));
 
-          heatmapData.push({
-            location: new google.maps.LatLng(lat, lng),
-            weight: weight
-          });
+          // Push as [lat, lng, intensity]
+          heatArray.push([lat, lng, weight]);
         });
 
-        // Create the heatmap layer
-        heatmap = new google.maps.visualization.HeatmapLayer({
-          data: heatmapData,
-          map: map,
-          radius: 40,
-          opacity: 0.7,
-          gradient: [
-            "rgba(255,0,0,0)",      // transparent
-            "rgba(255,0,0,1)",      // red (bad pH)
-            "rgba(255,255,0,1)",    // yellow (mid)
-            "rgba(0,255,0,1)"       // green (good pH)
-          ]
+        if (heatArray.length === 0) {
+          console.log("No valid coordinates found.");
+          return;
+        }
+
+        // Remove previous heatmap layer if exists
+        if (heatmapLayer) {
+          map.removeLayer(heatmapLayer);
+        }
+
+        // Create heatmap layer
+        heatmapLayer = L.heatLayer(heatArray, {
+          radius: 35,
+          blur: 20,
+          maxZoom: 12,
+          max: 1.0,
+          gradient: {
+            0.0: 'red',      // Bad pH (acidic or alkaline)
+            0.5: 'yellow',   // Moderate
+            1.0: 'lime'      // Good pH (neutral)
+          },
+          minOpacity: 0.25
+        }).addTo(map);
+
+        // Fit map bounds to show all points
+        const bounds = heatArray.map(p => [p[0], p[1]]);
+        map.fitBounds(bounds, { 
+          padding: [40, 40], 
+          maxZoom: 7 
         });
+      }).catch(err => {
+        console.error("Error loading sensor data:", err);
       });
     }
+
+    // Initialize map when page loads
+    window.addEventListener('load', initMap);
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      if (map) map.invalidateSize();
+    });
   </script>
 </body>
 </html>
